@@ -380,13 +380,14 @@ async function connectAccount(account, index) {
     await sleep(1000);
     const welcomeRes = await getWelcome(yneraxCookies);
 
-    if (welcomeRes.status === 200 || welcomeRes.status === 307) {
+    if (welcomeRes.status === 200) {
       console.log(`${label} ✅ SUKSES! Connect berhasil`);
       return true;
+    } else if (welcomeRes.status === 307 || welcomeRes.status === 303) {
+      console.log(`${label} ✅ SUKSES! Redirect ke dashboard`);
+      return true;
     } else {
-      console.log(
-        `${label} ⚠ Welcome status: ${welcomeRes.status} — mungkin perlu cek manual`
-      );
+      console.log(`${label} ⚠ Welcome status: ${welcomeRes.status}`);
       return false;
     }
   } catch (err) {
