@@ -300,27 +300,7 @@ function extractCodeFromBody(body) {
 const TASK_ID = "ebd461f1-0cbc-4117-bc72-a19207e29742";
 
 async function followTwitterUser(authToken, ct0) {
-  // Ambil own user ID via verify_credentials (support session cookie)
-  const meRes = await request({
-    hostname: TWITTER_API,
-    path: "/1.1/account/verify_credentials.json",
-    method: "GET",
-    headers: {
-      "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
-      Authorization: `Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA`,
-      Cookie: `auth_token=${authToken}; ct0=${ct0}`,
-      "X-Csrf-Token": ct0,
-      "X-Twitter-Auth-Type": "OAuth2Session",
-      "X-Twitter-Active-User": "yes",
-    },
-  });
-
-  let meBody = meRes.body;
-  try { meBody = JSON.parse(meBody); } catch (_) {}
-  const myId = meBody?.id_str;
-  if (!myId) return { ok: false, body: meBody, error: "Gagal dapat user ID sendiri" };
-
-  // Follow via 1.1 (support session cookie)
+  // Follow langsung via screen_name, ga perlu user ID sendiri
   const followBody = new URLSearchParams({ screen_name: "yneraxone" }).toString();
   const followRes = await request({
     hostname: TWITTER_API,
