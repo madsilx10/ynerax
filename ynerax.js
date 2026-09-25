@@ -125,6 +125,8 @@ async function getYneraxHome(cookies) {
   });
 
   const newCookies = parseCookies(res.headers["set-cookie"]);
+  // Hardcode ref_code kalau ga ke-set dari server
+  if (!newCookies.ref_code) newCookies.ref_code = REF_CODE;
   return { ...cookies, ...newCookies };
 }
 
