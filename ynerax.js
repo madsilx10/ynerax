@@ -1,0 +1,458 @@
+const https = require("https");
+const fs = require("fs");
+const readline = require("readline");
+const crypto = require("crypto");
+
+// ── CONFIG ──────────────────────────────────────────────
+const REF_CODE = "DXUGYQ";
+const YNERAX_BASE = "www.ynerax.one";
+const TWITTER_API = "api.x.com";
+const TWITTER_WEB = "x.com";
+
+const CLIENT_ID = "MGFtaXJLN2xSQ2xpRUY0dDdSc2I6MTpjaQ";
+const REDIRECT_URI = "https://puvmgctzzv bxmvnoiahm.supabase.co/auth/v1/callback";
+const REDIRECT_TO = "https://www.ynerax.one/auth/callback";
+const SCOPE = "users.email tweet.read users.read offline.access";
+
+// ── UTILS ────────────────────────────────────────────────
+function generateCodeVerifier() {
+  return crypto.randomBytes(32).toString("base64url");
+}
+
+function generateCodeChallenge(verifier) {
+  return crypto.createHash("sha256").update(verifier).digest("base64url");
+}
+
+function generateState() {
+  return crypto.randomBytes(16).toString("hex");
+}
+
+function request(options, postData = null) {
+  return new Promise((resolve, reject) => {
+    const req = https.request(options, (res) => {
+      let body = "";
+      res.on("data", (chunk) => (body += chunk));
+      res.on("end", () =>
+        resolve({
+          status: res.statusCode,
+          headers: res.headers,
+          body,
+        })
+      );
+    });
+    req.on("error", reject);
+    if (postData) req.write(postData);
+    req.end();
+  });
+}
+
+function parseCookies(setCookieHeaders) {
+  const cookies = {};
+  if (!setCookieHeaders) return cookies;
+  const arr = Array.isArray(setCookieHeaders)
+    ? setCookieHeaders
+    : [setCookieHeaders];
+  for (const c of arr) {
+    const [pair] = c.split(";");
+    const idx = pair.indexOf("=");
+    if (idx > -1) {
+      const key = pair.slice(0, idx).trim();
+      const val = pair.slice(idx + 1).trim();
+      cookies[key] = val;
+    }
+  }
+  return cookies;
+}
+
+function cookieStr(obj) {
+  return Object.entries(obj)
+    .map(([k, v]) => `${k}=${v}`)
+    .join("; ");
+}
+
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+// ── LOAD AKUN ────────────────────────────────────────────
+function loadAccounts(filePath) {
+  const lines = fs
+    .readFileSync(filePath, "utf-8")
+    .split("\n")
+    .map((l) => l.trim());
+  const accounts = [];
+  let i = 0;
+  while (i < lines.length) {
+    // skip blank
+    while (i < lines.length && lines[i] === "") i++;
+    if (i >= lines.length) break;
+    const authToken = lines[i++];
+    while (i < lines.length && lines[i] === "") i++;
+    if (i >= lines.length) break;
+    const ct0 = lines[i++];
+    accounts.push({ authToken, ct0 });
+  }
+  return accounts;
+}
+
+// ── STEP 1: GET ynerax home dengan ref ──────────────────
+async function getYneraxHome(cookies) {
+  const res = await request({
+    hostname: YNERAX_BASE,
+    path: `/?ref=${REF_CODE}`,
+    method: "GET",
+    headers: {
+      "User-Agent":
+        "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+      Accept:
+        "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+      "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
+      "Accept-Encoding": "gzip, deflate, br, zstd",
+      Cookie: cookieStr(cookies),
+    },
+  });
+
+  const newCookies = parseCookies(res.headers["set-cookie"]);
+  return { ...cookies, ...newCookies };
+}
+
+// ── STEP 2: GET Twitter OAuth authorize page ─────────────
+async function getTwitterAuthorizePage(authToken, ct0, codeChallenge, state) {
+  const params = new URLSearchParams({
+    client_id: CLIENT_ID,
+    code_challenge: codeChallenge,
+    code_challenge_method: "S256",
+    redirect_to: REDIRECT_TO,
+    redirect_uri: REDIRECT_URI,
+    response_type: "code",
+    scope: SCOPE,
+    state,
+  });
+
+  const cookies = {
+    auth_token: authToken,
+    ct0,
+  };
+
+  const res = await request({
+    hostname: TWITTER_WEB,
+    path: `/i/oauth2/authorize?${params.toString()}`,
+    method: "GET",
+    headers: {
+      "User-Agent":
+        "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+      Accept:
+        "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+      "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
+      "Accept-Encoding": "gzip, deflate, br, zstd",
+      Cookie: cookieStr(cookies),
+      Referer: "https://www.ynerax.one/",
+      "Sec-Fetch-Dest": "document",
+      "Sec-Fetch-Mode": "navigate",
+      "Sec-Fetch-Site": "cross-site",
+    },
+  });
+
+  const newCookies = parseCookies(res.headers["set-cookie"]);
+  return {
+    status: res.status,
+    cookies: { ...cookies, ...newCookies },
+    body: res.body,
+  };
+}
+
+// ── STEP 3: POST approve OAuth ───────────────────────────
+async function approveOAuth(authToken, ct0, code, twitterCookies) {
+  const formData = new URLSearchParams({
+    approval: "true",
+    code,
+    consent_flow: "web_consent",
+  }).toString();
+
+  const res = await request(
+    {
+      hostname: TWITTER_API,
+      path: "/2/oauth2/authorize",
+      method: "POST",
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Content-Length": Buffer.byteLength(formData),
+        Authorization: `Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA`,
+        Cookie: cookieStr(twitterCookies),
+        "X-Csrf-Token": ct0,
+        "X-Twitter-Auth-Type": "OAuth2Session",
+        "X-Twitter-Active-User": "yes",
+        "X-Twitter-Client-Language": "id",
+        Referer: "https://x.com/",
+        "Accept-Encoding": "gzip, deflate, br, zstd",
+      },
+    },
+    formData
+  );
+
+  let body = res.body;
+  try {
+    body = JSON.parse(body);
+  } catch (_) {}
+  return { status: res.status, body, headers: res.headers };
+}
+
+// ── STEP 4: Handle callback ke ynerax ───────────────────
+async function handleCallback(callbackUrl, yneraxCookies) {
+  const url = new URL(callbackUrl);
+  const path = url.pathname + url.search;
+
+  const res = await request({
+    hostname: YNERAX_BASE,
+    path,
+    method: "GET",
+    headers: {
+      "User-Agent":
+        "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+      Accept:
+        "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+      "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
+      Cookie: cookieStr(yneraxCookies),
+      Referer: "https://x.com/",
+      "Sec-Fetch-Dest": "document",
+      "Sec-Fetch-Mode": "navigate",
+      "Sec-Fetch-Site": "cross-site",
+    },
+  });
+
+  const newCookies = parseCookies(res.headers["set-cookie"]);
+  return {
+    status: res.status,
+    location: res.headers["location"],
+    cookies: { ...yneraxCookies, ...newCookies },
+  };
+}
+
+// ── STEP 5: GET welcome ──────────────────────────────────
+async function getWelcome(yneraxCookies) {
+  const res = await request({
+    hostname: YNERAX_BASE,
+    path: "/?welcome=1",
+    method: "GET",
+    headers: {
+      "User-Agent":
+        "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+      Accept:
+        "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+      "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
+      Cookie: cookieStr(yneraxCookies),
+      "Sec-Fetch-Dest": "document",
+      "Sec-Fetch-Mode": "navigate",
+    },
+  });
+
+  return { status: res.status, body: res.body };
+}
+
+// ── EXTRACT code dari redirect_uri response ───────────────
+function extractCodeFromBody(body) {
+  // body dari POST approve biasanya JSON dengan redirect_uri
+  if (body && body.redirect_uri) {
+    const url = new URL(body.redirect_uri);
+    return {
+      code: url.searchParams.get("code"),
+      state: url.searchParams.get("state"),
+      callbackUrl: body.redirect_uri,
+    };
+  }
+  return null;
+}
+
+// ── EXTRACT auth_code dari halaman authorize ──────────────
+function extractAuthCode(htmlBody) {
+  // cari auth_code di HTML form
+  const match = htmlBody.match(/name="code"\s+value="([^"]+)"/);
+  return match ? match[1] : null;
+}
+
+// ── MAIN FLOW PER AKUN ───────────────────────────────────
+async function connectAccount(account, index) {
+  const { authToken, ct0 } = account;
+  const label = `[Akun ${index + 1}]`;
+
+  try {
+    console.log(`\n${label} Mulai connect...`);
+
+    // Step 1: Hit ynerax home dengan ref
+    console.log(`${label} [1/5] Hit ynerax home dengan ref...`);
+    let yneraxCookies = await getYneraxHome({});
+    console.log(
+      `${label} ✓ ref_code cookie: ${yneraxCookies.ref_code || "tidak ada (cek manual)"}`
+    );
+
+    // Generate PKCE
+    const codeVerifier = generateCodeVerifier();
+    const codeChallenge = generateCodeChallenge(codeVerifier);
+    const state = generateState();
+
+    // Step 2: Buka Twitter OAuth page
+    console.log(`${label} [2/5] Buka Twitter OAuth authorize page...`);
+    const authPage = await getTwitterAuthorizePage(
+      authToken,
+      ct0,
+      codeChallenge,
+      state
+    );
+
+    if (authPage.status !== 200) {
+      console.log(
+        `${label} ✗ Gagal buka OAuth page, status: ${authPage.status}`
+      );
+      return false;
+    }
+
+    // Extract auth code dari HTML
+    const authCode = extractAuthCode(authPage.body);
+    if (!authCode) {
+      console.log(`${label} ✗ Tidak bisa extract auth code dari halaman`);
+      // Debug: simpan body
+      fs.writeFileSync(
+        `debug_auth_${index}.html`,
+        authPage.body.slice(0, 5000)
+      );
+      console.log(`${label} Body disimpan ke debug_auth_${index}.html`);
+      return false;
+    }
+    console.log(
+      `${label} ✓ Auth code: ${authCode.slice(0, 20)}...`
+    );
+
+    // Step 3: Approve OAuth
+    console.log(`${label} [3/5] Approve OAuth...`);
+    const approveRes = await approveOAuth(
+      authToken,
+      ct0,
+      authCode,
+      authPage.cookies
+    );
+
+    if (approveRes.status !== 200) {
+      console.log(
+        `${label} ✗ Approve gagal, status: ${approveRes.status}`
+      );
+      console.log(`${label} Body:`, JSON.stringify(approveRes.body).slice(0, 200));
+      return false;
+    }
+
+    const extracted = extractCodeFromBody(approveRes.body);
+    if (!extracted) {
+      console.log(`${label} ✗ Tidak bisa extract callback URL`);
+      console.log(`${label} Response:`, JSON.stringify(approveRes.body).slice(0, 300));
+      return false;
+    }
+    console.log(`${label} ✓ Dapat callback URL`);
+
+    // Step 4: Hit callback ynerax
+    console.log(`${label} [4/5] Handle callback ynerax...`);
+    const cbRes = await handleCallback(extracted.callbackUrl, yneraxCookies);
+    console.log(`${label} ✓ Callback status: ${cbRes.status}`);
+
+    // Update cookies
+    yneraxCookies = cbRes.cookies;
+
+    // Step 5: Hit welcome
+    console.log(`${label} [5/5] Hit welcome page...`);
+    await sleep(1000);
+    const welcomeRes = await getWelcome(yneraxCookies);
+
+    if (welcomeRes.status === 200 || welcomeRes.status === 307) {
+      console.log(`${label} ✅ SUKSES! Connect berhasil`);
+      return true;
+    } else {
+      console.log(
+        `${label} ⚠ Welcome status: ${welcomeRes.status} — mungkin perlu cek manual`
+      );
+      return false;
+    }
+  } catch (err) {
+    console.log(`${label} ✗ Error: ${err.message}`);
+    return false;
+  }
+}
+
+// ── MENU INTERAKTIF ──────────────────────────────────────
+async function main() {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  const ask = (q) => new Promise((r) => rl.question(q, r));
+
+  console.log("=================================");
+  console.log("  Ynerax X Connect Bot");
+  console.log(`  Ref: ${REF_CODE}`);
+  console.log("=================================");
+
+  const accounts = loadAccounts("akun.txt");
+  console.log(`\nTotal akun: ${accounts.length}`);
+
+  console.log("\nPilih mode:");
+  console.log("1. 1 akun (pilih nomor)");
+  console.log("2. Semua akun");
+  console.log("3. Dari akun X sampai selesai");
+
+  const mode = await ask("\nPilihan (1/2/3): ");
+
+  let toProcess = [];
+
+  if (mode === "1") {
+    accounts.forEach((_, i) =>
+      console.log(`  ${i + 1}. Akun ${i + 1}`)
+    );
+    const num = parseInt(await ask("Nomor akun: "));
+    if (isNaN(num) || num < 1 || num > accounts.length) {
+      console.log("Nomor tidak valid");
+      rl.close();
+      return;
+    }
+    toProcess = [{ account: accounts[num - 1], index: num - 1 }];
+  } else if (mode === "2") {
+    toProcess = accounts.map((a, i) => ({ account: a, index: i }));
+  } else if (mode === "3") {
+    const from = parseInt(await ask(`Dari akun nomor (1-${accounts.length}): `));
+    if (isNaN(from) || from < 1 || from > accounts.length) {
+      console.log("Nomor tidak valid");
+      rl.close();
+      return;
+    }
+    toProcess = accounts
+      .slice(from - 1)
+      .map((a, i) => ({ account: a, index: from - 1 + i }));
+  } else {
+    console.log("Pilihan tidak valid");
+    rl.close();
+    return;
+  }
+
+  rl.close();
+
+  const delay = 3000; // delay antar akun
+  let sukses = 0;
+  let gagal = 0;
+
+  for (const { account, index } of toProcess) {
+    const ok = await connectAccount(account, index);
+    if (ok) sukses++;
+    else gagal++;
+
+    if (toProcess.indexOf({ account, index }) < toProcess.length - 1) {
+      await sleep(delay);
+    }
+  }
+
+  console.log("\n=================================");
+  console.log(`  Selesai!`);
+  console.log(`  ✅ Sukses : ${sukses}`);
+  console.log(`  ❌ Gagal  : ${gagal}`);
+  console.log("=================================");
+}
+
+main();
