@@ -196,9 +196,11 @@ async function getOAuthStateFromYnerax(yneraxCookies, codeChallenge) {
   if (loc && loc.includes("state=")) {
     const u = new URL(loc.startsWith("http") ? loc : `https://x.com${loc}`);
     const state = u.searchParams.get("state");
+    // Ambil code_challenge dari redirect Twitter (ini yang Supabase kirim ke Twitter)
+    const twitterCodeChallenge = u.searchParams.get("code_challenge");
     const mergedCookies = { ...yneraxCookies, ...newCookies };
-    console.log(`  [supabase] ✓ state: ${state?.slice(0,20)}...`);
-    return { state, cookies: mergedCookies };
+    console.log(`  [supabase] ✓ state: ${state?.slice(0,20)}..., twitterCC: ${twitterCodeChallenge?.slice(0,20)}...`);
+    return { state, twitterCodeChallenge, cookies: mergedCookies };
   }
 
   console.log(`  [supabase] body: ${(res.body||"").slice(0,200)}`);
@@ -562,14 +564,16 @@ async function connectAccount(account, index) {
     const supabaseOAuth = await getOAuthStateFromYnerax(yneraxCookies, codeChallenge);
     if (supabaseOAuth && supabaseOAuth.state) {
       state = supabaseOAuth.state;
-      if (supabaseOAuth.codeChallenge) codeChallenge = supabaseOAuth.codeChallenge;
+      // Pakai code_challenge dari redirect Supabase→Twitter, bukan dari skrip
+      if (supabaseOAuth.twitterCodeChallenge) codeChallenge = supabaseOAuth.twitterCodeChallenge;
       yneraxCookies = { ...yneraxCookies, ...supabaseOAuth.cookies };
       console.log(`${label} ✓ State dari Supabase: ${state.slice(0, 20)}...`);
     } else {
       console.log(`${label} ⚠ Gagal get state dari Supabase, pakai random state`);
     }
 
-    // Set code_verifier ke cookie ynerax — pakai yang dari Supabase kalau ada
+    // code_verifier kita kirim ke Supabase saat authorize, Supabase simpan di cookie
+    // Set manual kalau belum ada
     if (!yneraxCookies["sb-puvmgctzzvbxmvnoiahm-auth-token-flows-code-verifier"]) {
       yneraxCookies["sb-puvmgctzzvbxmvnoiahm-auth-token-flows-code-verifier"] = codeVerifier;
     }
