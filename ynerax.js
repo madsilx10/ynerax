@@ -159,14 +159,14 @@ async function getYneraxHome(cookies) {
   return newCookies;
 }
 
-// ── STEP 1b: Get OAuth URL dari Supabase (dapat state valid) ────
-async function getSupabaseOAuthURL(yneraxCookies) {
-  // Hit Supabase sign-in dengan provider twitter untuk dapat redirect URL yg berisi state valid
+// ── STEP 1b: Get OAuth state valid dari Supabase (provider=x) ─
+async function getOAuthStateFromYnerax(yneraxCookies, codeChallenge) {
+  // Hit Supabase authorize dengan provider=x dan code_challenge dari skrip
+  // Supabase akan redirect ke Twitter dengan state yang valid
   const params = new URLSearchParams({
-    provider: "twitter",
-    redirect_to: REDIRECT_TO,
-    scopes: SCOPE,
-    code_challenge: "", // akan diisi nanti
+    provider: "x",
+    redirect_to: "https://www.ynerax.one/auth/callback",
+    code_challenge: codeChallenge,
     code_challenge_method: "s256",
   });
 
@@ -175,32 +175,32 @@ async function getSupabaseOAuthURL(yneraxCookies) {
     path: `/auth/v1/authorize?${params.toString()}`,
     method: "GET",
     headers: {
-      "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
-      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Mobile Safari/537.36",
+      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
       "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
+      "Accept-Encoding": "gzip, deflate, br",
       Cookie: cookieStr(yneraxCookies),
-      Referer: `https://${YNERAX_BASE}/`,
-      apikey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB1dm1nY3R6enZieG12bm9pYWhtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDI1NTgxMDIsImV4cCI6MjA1ODEzNDEwMn0.FnHk4j5nGExYZ13VcnAV5jnJ1JhXb_J5xWrHTNe2AkA",
+      Referer: "https://www.ynerax.one/",
+      "Sec-Fetch-Dest": "document",
+      "Sec-Fetch-Mode": "navigate",
+      "Sec-Fetch-Site": "cross-site",
+      "Sec-Fetch-User": "?1",
+      "Upgrade-Insecure-Requests": "1",
     },
   });
 
   const newCookies = parseCookies(res.headers["set-cookie"]);
   const loc = res.headers["location"] || "";
-  console.log(`  [supabase] status: ${res.status}, redirect: ${loc.slice(0, 100)}`);
+  console.log(`  [supabase] status: ${res.status}, redirect: ${loc.slice(0, 120)}`);
 
-  // Redirect ke x.com/i/oauth2/authorize?...state=xxx
   if (loc && loc.includes("state=")) {
     const u = new URL(loc.startsWith("http") ? loc : `https://x.com${loc}`);
     const state = u.searchParams.get("state");
-    const codeChallenge = u.searchParams.get("code_challenge");
     const mergedCookies = { ...yneraxCookies, ...newCookies };
-    // code_verifier Supabase ada di cookie sb-...-code-verifier
-    const supabaseVerifierKey = Object.keys(mergedCookies).find(k => k.includes("code-verifier"));
-    console.log(`  [supabase] state: ${state?.slice(0,20)}..., verifier key: ${supabaseVerifierKey || "tidak ada"}`);
-    return { state, codeChallenge, cookies: mergedCookies, twitterAuthUrl: loc, verifierKey: supabaseVerifierKey };
+    console.log(`  [supabase] ✓ state: ${state?.slice(0,20)}...`);
+    return { state, cookies: mergedCookies };
   }
 
-  // Kalau tidak redirect, coba baca body
   console.log(`  [supabase] body: ${(res.body||"").slice(0,200)}`);
   return null;
 }
@@ -559,7 +559,7 @@ async function connectAccount(account, index) {
     let codeChallenge = generateCodeChallenge(codeVerifier);
     let state = generateState();
 
-    const supabaseOAuth = await getSupabaseOAuthURL(yneraxCookies);
+    const supabaseOAuth = await getOAuthStateFromYnerax(yneraxCookies, codeChallenge);
     if (supabaseOAuth && supabaseOAuth.state) {
       state = supabaseOAuth.state;
       if (supabaseOAuth.codeChallenge) codeChallenge = supabaseOAuth.codeChallenge;
