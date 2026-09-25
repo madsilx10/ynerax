@@ -212,34 +212,51 @@ async function approveOAuth(authToken, ct0, authCode, twitterCookies) {
 }
 
 // ── STEP 4: Handle callback ke ynerax ───────────────────
-async function handleCallback(callbackUrl, yneraxCookies) {
-  const url = new URL(callbackUrl);
-  const path = url.pathname + url.search;
+async function handleCallback(callbackUrl, yneraxCookies, maxRedirects = 5) {
+  let url = new URL(callbackUrl);
+  let cookies = { ...yneraxCookies };
+  let lastStatus = 0;
 
-  const res = await request({
-    hostname: YNERAX_BASE,
-    path,
-    method: "GET",
-    headers: {
-      "User-Agent":
-        "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
-      Accept:
-        "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-      "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
-      Cookie: cookieStr(yneraxCookies),
-      Referer: "https://x.com/",
-      "Sec-Fetch-Dest": "document",
-      "Sec-Fetch-Mode": "navigate",
-      "Sec-Fetch-Site": "cross-site",
-    },
-  });
+  for (let i = 0; i < maxRedirects; i++) {
+    const res = await request({
+      hostname: url.hostname,
+      path: url.pathname + url.search,
+      method: "GET",
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+        Accept:
+          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
+        Cookie: cookieStr(cookies),
+        Referer: "https://x.com/",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "cross-site",
+      },
+    });
 
-  const newCookies = parseCookies(res.headers["set-cookie"]);
-  return {
-    status: res.status,
-    location: res.headers["location"],
-    cookies: { ...yneraxCookies, ...newCookies },
-  };
+    const newCookies = parseCookies(res.headers["set-cookie"]);
+    cookies = { ...cookies, ...newCookies };
+    lastStatus = res.status;
+
+    // Cek error exchange
+    if (res.headers["location"] && res.headers["location"].includes("exchange_failed")) {
+      return { status: res.status, error: "exchange_failed", cookies };
+    }
+
+    // Follow redirect
+    if ((res.status === 301 || res.status === 302 || res.status === 307 || res.status === 308) && res.headers["location"]) {
+      const loc = res.headers["location"];
+      url = loc.startsWith("http") ? new URL(loc) : new URL(loc, `https://${url.hostname}`);
+      await sleep(500);
+      continue;
+    }
+
+    return { status: res.status, cookies, location: res.headers["location"] };
+  }
+
+  return { status: lastStatus, cookies };
 }
 
 // ── STEP 5: GET welcome ──────────────────────────────────
@@ -346,6 +363,11 @@ async function connectAccount(account, index) {
     // Step 4: Hit callback ynerax
     console.log(`${label} [4/5] Handle callback ynerax...`);
     const cbRes = await handleCallback(extracted.callbackUrl, yneraxCookies);
+
+    if (cbRes.error === "exchange_failed") {
+      console.log(`${label} ✗ Exchange failed (rate limit Twitter) — coba lagi nanti`);
+      return false;
+    }
     console.log(`${label} ✓ Callback status: ${cbRes.status}`);
 
     // Update cookies
@@ -425,7 +447,7 @@ async function main() {
 
   rl.close();
 
-  const delay = 3000; // delay antar akun
+  const delay = 10000; // 10 detik antar akun
   let sukses = 0;
   let gagal = 0;
 
