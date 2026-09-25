@@ -280,7 +280,7 @@ async function handleCallback(callbackUrl, yneraxCookies, maxRedirects = 5) {
     }
 
     // Follow redirect
-    if ((res.status === 301 || res.status === 302 || res.status === 307 || res.status === 308) && res.headers["location"]) {
+    if ((res.status === 301 || res.status === 302 || res.status === 303 || res.status === 307 || res.status === 308) && res.headers["location"]) {
       const loc = res.headers["location"];
       url = loc.startsWith("http") ? new URL(loc) : new URL(loc, `https://${url.hostname}`);
       await sleep(500);
