@@ -329,7 +329,10 @@ function extractCodeFromBody(body) {
 }
 
 // ── STEP 6: Task follow @yneraxone ──────────────────────
-const TASK_ID = "ebd461f1-0cbc-4117-bc72-a19207e29742";
+// PENTING: Next-Action ID bukan UUID biasa — harus intercept dari DevTools.
+// Buka ynerax.one, klik task follow, cari request POST ke "/" dengan
+// header "Next-Action", salin value-nya ke sini (biasanya 40-64 char hex).
+const TASK_ID = "ebd461f1-0cbc-4117-bc72-a19207e29742"; // ← GANTI dengan ID dari DevTools
 
 async function followTwitterUser(authToken, ct0) {
   // Follow langsung via screen_name, ga perlu user ID sendiri
@@ -356,6 +359,33 @@ async function followTwitterUser(authToken, ct0) {
   return { ok: followRes.status === 200, body: followResBody };
 }
 
+async function discoverTaskId(yneraxCookies, label) {
+  // Coba ambil Next-Action ID dari halaman ynerax langsung
+  const res = await request({
+    hostname: YNERAX_BASE,
+    path: "/",
+    method: "GET",
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      Cookie: cookieStr(yneraxCookies),
+    },
+  });
+
+  // Next.js server action IDs biasanya muncul di HTML/JS sebagai hex 40+ char
+  // Pattern: "action":"<hex>" atau Next-Action header di response
+  const matches = res.body.match(/"([0-9a-f]{40,64})"/g);
+  if (matches && matches.length > 0) {
+    const ids = [...new Set(matches.map(m => m.replace(/"/g, "")))];
+    console.log(`${label} 🔍 Kandidat Task ID dari page: ${ids.slice(0, 3).join(", ")}`);
+    // Return yang pertama sebagai kandidat; user bisa override manual
+    return ids[0];
+  }
+
+  console.log(`${label} ⚠ Tidak bisa auto-discover Task ID — pakai TASK_ID dari config`);
+  return null;
+}
+
 async function doTask(authToken, ct0, yneraxCookies, label) {
   // Follow @yneraxone dulu
   console.log(`${label} Follow @yneraxone...`);
@@ -368,7 +398,19 @@ async function doTask(authToken, ct0, yneraxCookies, label) {
 
   await sleep(2000);
 
-  const body = JSON.stringify([TASK_ID]);
+  // Auto-discover task ID jika TASK_ID masih UUID placeholder
+  let effectiveTaskId = TASK_ID;
+  if (TASK_ID.includes("-")) {
+    const discovered = await discoverTaskId(yneraxCookies, label);
+    if (discovered) {
+      effectiveTaskId = discovered;
+      console.log(`${label} 🔍 Pakai auto-discovered Task ID: ${effectiveTaskId}`);
+    } else {
+      console.log(`${label} ⚠ TASK_ID masih UUID — kemungkinan besar gagal. Intercept dari DevTools dulu.`);
+    }
+  }
+
+  const body = JSON.stringify([effectiveTaskId]);
 
   // Klik task
   await request({
@@ -384,7 +426,7 @@ async function doTask(authToken, ct0, yneraxCookies, label) {
       "Content-Length": Buffer.byteLength(body),
       Cookie: cookieStr(yneraxCookies),
       Referer: "https://www.ynerax.one/",
-      "Next-Action": TASK_ID,
+      "Next-Action": effectiveTaskId,
     },
   }, body);
 
@@ -404,7 +446,7 @@ async function doTask(authToken, ct0, yneraxCookies, label) {
       "Content-Length": Buffer.byteLength(body),
       Cookie: cookieStr(yneraxCookies),
       Referer: "https://www.ynerax.one/",
-      "Next-Action": TASK_ID,
+      "Next-Action": effectiveTaskId,
     },
   }, body);
 
@@ -509,11 +551,16 @@ async function connectAccount(account, index) {
     }
     console.log(`${label} ✓ Callback status: ${cbRes.status}`);
 
-    // Update cookies
+    // Update cookies — preserve ref_code agar tidak hilang setelah callback
+    const savedRefCode = yneraxCookies.ref_code;
     yneraxCookies = cbRes.cookies;
+    if (savedRefCode && !yneraxCookies.ref_code) {
+      yneraxCookies.ref_code = savedRefCode;
+    }
 
     // Step 5: Hit welcome
     console.log(`${label} [5/5] Hit welcome page...`);
+    console.log(`${label} 🔍 ref_code sebelum welcome: ${yneraxCookies.ref_code || "TIDAK ADA ⚠"}`);
     await sleep(1000);
     const welcomeRes = await getWelcome(yneraxCookies);
 
