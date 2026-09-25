@@ -296,6 +296,128 @@ function extractCodeFromBody(body) {
   return null;
 }
 
+// ── STEP 6: Task follow @yneraxone ──────────────────────
+const TASK_ID = "ebd461f1-0cbc-4117-bc72-a19207e29742";
+const YNERAX_TWITTER_ID = "1862516346595561472"; // @yneraxone user ID
+
+async function followTwitterUser(authToken, ct0, userId) {
+  // Ambil own user ID dulu
+  const meRes = await request({
+    hostname: TWITTER_API,
+    path: "/2/users/me",
+    method: "GET",
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+      Authorization: `Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA`,
+      Cookie: `auth_token=${authToken}; ct0=${ct0}`,
+      "X-Csrf-Token": ct0,
+      "X-Twitter-Auth-Type": "OAuth2Session",
+      "X-Twitter-Active-User": "yes",
+    },
+  });
+
+  let meBody = meRes.body;
+  try { meBody = JSON.parse(meBody); } catch (_) {}
+  const myId = meBody?.data?.id;
+  if (!myId) return { ok: false, error: "Gagal dapat user ID sendiri" };
+
+  // Follow
+  const followBody = JSON.stringify({ target_user_id: userId });
+  const followRes = await request({
+    hostname: TWITTER_API,
+    path: `/2/users/${myId}/following`,
+    method: "POST",
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+      "Content-Type": "application/json",
+      "Content-Length": Buffer.byteLength(followBody),
+      Authorization: `Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA`,
+      Cookie: `auth_token=${authToken}; ct0=${ct0}`,
+      "X-Csrf-Token": ct0,
+      "X-Twitter-Auth-Type": "OAuth2Session",
+      "X-Twitter-Active-User": "yes",
+      Referer: "https://x.com/",
+    },
+  }, followBody);
+
+  let followResBody = followRes.body;
+  try { followResBody = JSON.parse(followResBody); } catch (_) {}
+  return { ok: followRes.status === 200 || followRes.status === 201, body: followResBody };
+}
+
+async function doTask(authToken, ct0, yneraxCookies, label) {
+  // Follow @yneraxone dulu
+  console.log(`${label} Follow @yneraxone...`);
+  const followRes = await followTwitterUser(authToken, ct0, YNERAX_TWITTER_ID);
+  if (!followRes.ok) {
+    console.log(`${label} ⚠ Follow gagal: ${JSON.stringify(followRes.body).slice(0, 100)}`);
+  } else {
+    console.log(`${label} ✓ Followed @yneraxone`);
+  }
+
+  await sleep(2000);
+
+  const body = JSON.stringify([TASK_ID]);
+
+  // Klik task
+  await request({
+    hostname: YNERAX_BASE,
+    path: "/",
+    method: "POST",
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+      Accept: "text/x-component",
+      "Accept-Encoding": "gzip, deflate, br",
+      "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
+      "Content-Type": "text/plain;charset=UTF-8",
+      "Content-Length": Buffer.byteLength(body),
+      Cookie: cookieStr(yneraxCookies),
+      Referer: "https://www.ynerax.one/",
+      "Next-Action": TASK_ID,
+    },
+  }, body);
+
+  await sleep(3000);
+
+  // Verify task
+  const verifyRes = await request({
+    hostname: YNERAX_BASE,
+    path: "/",
+    method: "POST",
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+      Accept: "text/x-component",
+      "Accept-Encoding": "gzip, deflate, br",
+      "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
+      "Content-Type": "text/plain;charset=UTF-8",
+      "Content-Length": Buffer.byteLength(body),
+      Cookie: cookieStr(yneraxCookies),
+      Referer: "https://www.ynerax.one/",
+      "Next-Action": TASK_ID,
+    },
+  }, body);
+
+  const verifyBody = verifyRes.body;
+  const match = verifyBody.match(/\{"ok":true[^}]*\}/);
+  if (match) {
+    try {
+      const parsed = JSON.parse(match[0]);
+      if (parsed.ok && parsed.reward) {
+        console.log(`${label} ✅ Task selesai! Reward: ${parsed.reward}, Entries: ${parsed.entries}`);
+        return true;
+      }
+    } catch (_) {}
+  }
+
+  if (verifyBody.includes('"ok":true')) {
+    console.log(`${label} ✅ Task selesai!`);
+    return true;
+  }
+
+  console.log(`${label} ⚠ Task response tidak jelas`);
+  return false;
+}
+
 // ── MAIN FLOW PER AKUN ───────────────────────────────────
 async function connectAccount(account, index) {
   const { authToken, ct0 } = account;
@@ -381,15 +503,20 @@ async function connectAccount(account, index) {
     const welcomeRes = await getWelcome(yneraxCookies);
 
     if (welcomeRes.status === 200) {
-      console.log(`${label} ✅ SUKSES! Connect berhasil`);
-      return true;
+      console.log(`${label} ✅ Connect berhasil`);
     } else if (welcomeRes.status === 307 || welcomeRes.status === 303) {
-      console.log(`${label} ✅ SUKSES! Redirect ke dashboard`);
-      return true;
+      console.log(`${label} ✅ Connect berhasil (redirect dashboard)`);
     } else {
       console.log(`${label} ⚠ Welcome status: ${welcomeRes.status}`);
       return false;
     }
+
+    // Step 6: Task follow
+    console.log(`${label} [6/6] Ngerjain task follow...`);
+    await sleep(2000);
+    await doTask(authToken, ct0, yneraxCookies, label);
+
+    return true;
   } catch (err) {
     console.log(`${label} ✗ Error: ${err.message}`);
     return false;
