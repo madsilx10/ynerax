@@ -2,6 +2,7 @@ const https = require("https");
 const fs = require("fs");
 const readline = require("readline");
 const crypto = require("crypto");
+const zlib = require("zlib");
 
 // ── CONFIG ──────────────────────────────────────────────
 const REF_CODE = "DXUGYQ";
@@ -30,15 +31,26 @@ function generateState() {
 function request(options, postData = null) {
   return new Promise((resolve, reject) => {
     const req = https.request(options, (res) => {
-      let body = "";
-      res.on("data", (chunk) => (body += chunk));
-      res.on("end", () =>
+      const encoding = res.headers["content-encoding"];
+      const chunks = [];
+
+      res.on("data", (chunk) => chunks.push(chunk));
+      res.on("end", () => {
+        const buf = Buffer.concat(chunks);
+        const decompress = (data) => {
+          try {
+            if (encoding === "gzip") return zlib.gunzipSync(data).toString("utf-8");
+            if (encoding === "br") return zlib.brotliDecompressSync(data).toString("utf-8");
+            if (encoding === "deflate") return zlib.inflateSync(data).toString("utf-8");
+          } catch (_) {}
+          return data.toString("utf-8");
+        };
         resolve({
           status: res.statusCode,
           headers: res.headers,
-          body,
-        })
-      );
+          body: decompress(buf),
+        });
+      });
     });
     req.on("error", reject);
     if (postData) req.write(postData);
@@ -313,10 +325,7 @@ async function connectAccount(account, index) {
     if (!authCode) {
       console.log(`${label} ✗ Tidak bisa extract auth code dari halaman`);
       // Debug: simpan body
-      fs.writeFileSync(
-        `debug_auth_${index}.html`,
-        authPage.body.slice(0, 5000)
-      );
+      fs.writeFileSync(`debug_auth_${index}.html`, authPage.body);
       console.log(`${label} Body disimpan ke debug_auth_${index}.html`);
       return false;
     }
@@ -404,10 +413,7 @@ async function main() {
   let toProcess = [];
 
   if (mode === "1") {
-    accounts.forEach((_, i) =>
-      console.log(`  ${i + 1}. Akun ${i + 1}`)
-    );
-    const num = parseInt(await ask("Nomor akun: "));
+    const num = parseInt(await ask(`Nomor akun (1-${accounts.length}): `));
     if (isNaN(num) || num < 1 || num > accounts.length) {
       console.log("Nomor tidak valid");
       rl.close();
