@@ -340,6 +340,11 @@ async function handleCallback(callbackUrl, yneraxCookies, maxRedirects = 5) {
       }
     }
 
+    // Log location header
+    if (res.headers["location"]) {
+      console.log(`  [cb step ${i}] location: ${res.headers["location"].slice(0, 200)}`);
+    }
+
     // Cek error exchange
     if (res.headers["location"] && res.headers["location"].includes("exchange_failed")) {
       return { status: res.status, error: "exchange_failed", cookies };
