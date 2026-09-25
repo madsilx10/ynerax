@@ -268,6 +268,9 @@ async function handleCallback(callbackUrl, yneraxCookies, maxRedirects = 5) {
     });
 
     const newCookies = parseCookies(res.headers["set-cookie"]);
+    if (Object.keys(newCookies).length > 0) {
+      console.log(`  [cb step ${i}] set-cookie dari ${url.hostname}: ${Object.keys(newCookies).join(", ")}`);
+    }
     cookies = { ...cookies, ...newCookies };
     lastStatus = res.status;
 
