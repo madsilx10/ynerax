@@ -302,6 +302,11 @@ async function handleCallback(callbackUrl, yneraxCookies, maxRedirects = 5) {
       continue;
     }
 
+    // Debug: log body kalau ada access_token atau panjang > 100
+    if (res.body && (res.body.includes("access_token") || (i === 0 && res.body.length > 50))) {
+      console.log(`  [cb step ${i}] body snippet: ${res.body.slice(0, 300)}`);
+    }
+
     return { status: res.status, cookies, location: res.headers["location"] };
   }
 
