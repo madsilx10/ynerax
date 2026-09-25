@@ -173,7 +173,7 @@ async function getOAuthStateFromYnerax(yneraxCookies, codeVerifier, codeChalleng
   // Supabase SSR (Next.js) simpan code_verifier di cookie ini
   const supabaseCookies = {
     ...yneraxCookies,
-    "sb-puvmgctzzvbxmvnoiahm-auth-token-flows-code-verifier": `base64-${Buffer.from(codeVerifier).toString("base64")}`,
+    "sb-puvmgctzzvbxmvnoiahm-auth-token-code-verifier": `base64-${Buffer.from(codeVerifier).toString("base64")}`,
   };
 
   const res = await request({
@@ -212,7 +212,7 @@ async function getOAuthStateFromYnerax(yneraxCookies, codeVerifier, codeChalleng
     const mergedCookies = { ...yneraxCookies, ...newCookies };
 
     // Set semua variant nama cookie verifier yang mungkin dipakai Supabase SSR
-    mergedCookies["sb-puvmgctzzvbxmvnoiahm-auth-token-flows-code-verifier"] = verifierEncoded;
+    mergedCookies["sb-puvmgctzzvbxmvnoiahm-auth-token-code-verifier"] = verifierEncoded;
     // Cari kalau ada cookie flow-UUID dari set-cookie Supabase, replace verifiernya
     for (const key of Object.keys(newCookies)) {
       if (key.includes("code-verifier")) {
@@ -601,8 +601,8 @@ async function connectAccount(account, index) {
     }
 
     // Pastikan code_verifier ada di cookies (sudah di-set dari getOAuthStateFromYnerax)
-    if (!yneraxCookies["sb-puvmgctzzvbxmvnoiahm-auth-token-flows-code-verifier"]) {
-      yneraxCookies["sb-puvmgctzzvbxmvnoiahm-auth-token-flows-code-verifier"] = `base64-${Buffer.from(codeVerifier).toString("base64")}`;
+    if (!yneraxCookies["sb-puvmgctzzvbxmvnoiahm-auth-token-code-verifier"]) {
+      yneraxCookies["sb-puvmgctzzvbxmvnoiahm-auth-token-code-verifier"] = `base64-${Buffer.from(codeVerifier).toString("base64")}`;
     }
 
     // Step 2: Get auth code dari Twitter API
@@ -654,7 +654,7 @@ async function connectAccount(account, index) {
     // Step 4: Hit callback ynerax
     console.log(`${label} [4/5] Handle callback ynerax...`);
     // Supabase SSR butuh code_verifier dari cookie untuk exchange token server-side
-    yneraxCookies["sb-puvmgctzzvbxmvnoiahm-auth-token-flows-code-verifier"] = codeVerifier;
+    yneraxCookies["sb-puvmgctzzvbxmvnoiahm-auth-token-code-verifier"] = `base64-${Buffer.from(codeVerifier).toString("base64")}`;
     const cbRes = await handleCallback(extracted.callbackUrl, yneraxCookies);
 
     if (cbRes.error === "exchange_failed") {
