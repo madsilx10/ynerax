@@ -406,6 +406,8 @@ async function doTask(authToken, ct0, yneraxCookies, label) {
   }, body);
 
   const verifyBody = verifyRes.body;
+  console.log(`${label} Debug cookies keys: ${Object.keys(yneraxCookies).join(", ")}`);
+  console.log(`${label} Debug verify raw: ${verifyBody.slice(0, 200)}`);
   const match = verifyBody.match(/\{"ok":true[^}]*\}/);
   if (match) {
     try {
