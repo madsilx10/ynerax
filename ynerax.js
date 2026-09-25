@@ -301,10 +301,10 @@ const TASK_ID = "ebd461f1-0cbc-4117-bc72-a19207e29742";
 const YNERAX_TWITTER_ID = "1862516346595561472"; // @yneraxone user ID
 
 async function followTwitterUser(authToken, ct0, userId) {
-  // Ambil own user ID dulu
+  // Ambil own user ID via verify_credentials (support session cookie)
   const meRes = await request({
     hostname: TWITTER_API,
-    path: "/2/users/me",
+    path: "/1.1/account/verify_credentials.json",
     method: "GET",
     headers: {
       "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
@@ -318,8 +318,8 @@ async function followTwitterUser(authToken, ct0, userId) {
 
   let meBody = meRes.body;
   try { meBody = JSON.parse(meBody); } catch (_) {}
-  const myId = meBody?.data?.id;
-  if (!myId) return { ok: false, error: "Gagal dapat user ID sendiri" };
+  const myId = meBody?.id_str;
+  if (!myId) return { ok: false, body: meBody, error: "Gagal dapat user ID sendiri" };
 
   // Follow
   const followBody = JSON.stringify({ target_user_id: userId });
@@ -350,7 +350,7 @@ async function doTask(authToken, ct0, yneraxCookies, label) {
   console.log(`${label} Follow @yneraxone...`);
   const followRes = await followTwitterUser(authToken, ct0, YNERAX_TWITTER_ID);
   if (!followRes.ok) {
-    console.log(`${label} ⚠ Follow gagal: ${JSON.stringify(followRes.body).slice(0, 100)}`);
+    console.log(`${label} ⚠ Follow gagal: ${JSON.stringify(followRes.body ?? followRes.error ?? "unknown").slice(0, 100)}`);
   } else {
     console.log(`${label} ✓ Followed @yneraxone`);
   }
@@ -514,9 +514,9 @@ async function connectAccount(account, index) {
     // Step 6: Task follow
     console.log(`${label} [6/6] Ngerjain task follow...`);
     await sleep(2000);
-    await doTask(authToken, ct0, yneraxCookies, label);
+    const taskOk = await doTask(authToken, ct0, yneraxCookies, label);
 
-    return true;
+    return taskOk;
   } catch (err) {
     console.log(`${label} ✗ Error: ${err.message}`);
     return false;
@@ -586,7 +586,7 @@ async function main() {
     if (ok) sukses++;
     else gagal++;
 
-    if (toProcess.indexOf({ account, index }) < toProcess.length - 1) {
+    if (toProcess.findIndex(item => item.index === index) < toProcess.length - 1) {
       await sleep(delay);
     }
   }
