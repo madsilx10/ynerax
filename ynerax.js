@@ -560,6 +560,7 @@ async function connectAccount(account, index) {
 
     // Step 5: Hit welcome
     console.log(`${label} [5/5] Hit welcome page...`);
+    console.log(`${label} 🔍 Cookies setelah callback: ${Object.keys(yneraxCookies).join(", ")}`);
     console.log(`${label} 🔍 ref_code sebelum welcome: ${yneraxCookies.ref_code || "TIDAK ADA ⚠"}`);
     await sleep(1000);
     const welcomeRes = await getWelcome(yneraxCookies);
