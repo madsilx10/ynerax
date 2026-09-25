@@ -11,7 +11,7 @@ const TWITTER_API = "api.x.com";
 const TWITTER_WEB = "x.com";
 
 const CLIENT_ID = "MGFtaXJLN2xSQ2xpRUY0dDdSc2I6MTpjaQ";
-const REDIRECT_URI = "https://puvmgctzzv bxmvnoiahm.supabase.co/auth/v1/callback";
+const REDIRECT_URI = "https://puvmgctzzvbxmvnoiahm.supabase.co/auth/v1/callback";
 const REDIRECT_TO = "https://www.ynerax.one/auth/callback";
 const SCOPE = "users.email tweet.read users.read offline.access";
 
