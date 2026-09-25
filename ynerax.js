@@ -274,7 +274,10 @@ async function handleCallback(callbackUrl, yneraxCookies, maxRedirects = 5) {
     cookies = { ...cookies, ...newCookies };
     lastStatus = res.status;
 
-    // Extract Supabase auth token dari body (Supabase set token via JS, bukan set-cookie)
+    // Log body selalu untuk debug
+    console.log(`  [cb step ${i}] status: ${res.status}, host: ${url.hostname}, body[0:200]: ${(res.body||"").slice(0, 200)}`);
+
+    // Extract Supabase auth token dari body
     if (res.body && res.body.includes("access_token")) {
       const atMatch = res.body.match(/"access_token":"([^"]+)"/);
       const rtMatch = res.body.match(/"refresh_token":"([^"]+)"/);
@@ -294,17 +297,13 @@ async function handleCallback(callbackUrl, yneraxCookies, maxRedirects = 5) {
       return { status: res.status, error: "exchange_failed", cookies };
     }
 
-    // Follow redirect
-    if ((res.status === 301 || res.status === 302 || res.status === 303 || res.status === 307 || res.status === 308) && res.headers["location"]) {
+    // Follow redirect — termasuk ke ynerax.one/auth/callback
+    if (res.headers["location"]) {
       const loc = res.headers["location"];
       url = loc.startsWith("http") ? new URL(loc) : new URL(loc, `https://${url.hostname}`);
+      console.log(`  [cb step ${i}] redirect -> ${url.href}`);
       await sleep(500);
       continue;
-    }
-
-    // Debug: log body kalau ada access_token atau panjang > 100
-    if (res.body && (res.body.includes("access_token") || (i === 0 && res.body.length > 50))) {
-      console.log(`  [cb step ${i}] body snippet: ${res.body.slice(0, 300)}`);
     }
 
     return { status: res.status, cookies, location: res.headers["location"] };
