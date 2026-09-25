@@ -499,6 +499,8 @@ async function connectAccount(account, index) {
 
     // Step 4: Hit callback ynerax
     console.log(`${label} [4/5] Handle callback ynerax...`);
+    // Supabase SSR butuh code_verifier dari cookie untuk exchange token server-side
+    yneraxCookies["sb-puvmgctzzvbxmvnoiahm-auth-token-flows-code-verifier"] = codeVerifier;
     const cbRes = await handleCallback(extracted.callbackUrl, yneraxCookies);
 
     if (cbRes.error === "exchange_failed") {
