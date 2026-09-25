@@ -128,8 +128,8 @@ async function getYneraxHome(cookies) {
   return { ...cookies, ...newCookies };
 }
 
-// ── STEP 2: GET Twitter OAuth authorize page ─────────────
-async function getTwitterAuthorizePage(authToken, ct0, codeChallenge, state) {
+// ── STEP 2: GET auth_code dari Twitter API ───────────────
+async function getAuthCode(authToken, ct0, codeChallenge, state) {
   const params = new URLSearchParams({
     client_id: CLIENT_ID,
     code_challenge: codeChallenge,
@@ -141,43 +141,45 @@ async function getTwitterAuthorizePage(authToken, ct0, codeChallenge, state) {
     state,
   });
 
-  const cookies = {
-    auth_token: authToken,
-    ct0,
-  };
+  const cookies = { auth_token: authToken, ct0 };
 
+  // Pakai API endpoint langsung, bukan HTML page
   const res = await request({
-    hostname: TWITTER_WEB,
-    path: `/i/oauth2/authorize?${params.toString()}`,
+    hostname: TWITTER_API,
+    path: `/2/oauth2/authorize?${params.toString()}`,
     method: "GET",
     headers: {
       "User-Agent":
         "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
-      Accept:
-        "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+      Accept: "application/json",
       "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
       "Accept-Encoding": "gzip, deflate, br, zstd",
+      Authorization: `Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA`,
       Cookie: cookieStr(cookies),
-      Referer: "https://www.ynerax.one/",
-      "Sec-Fetch-Dest": "document",
-      "Sec-Fetch-Mode": "navigate",
-      "Sec-Fetch-Site": "cross-site",
+      "X-Csrf-Token": ct0,
+      "X-Twitter-Auth-Type": "OAuth2Session",
+      "X-Twitter-Active-User": "yes",
+      "X-Twitter-Client-Language": "id",
+      Referer: "https://x.com/",
     },
   });
 
   const newCookies = parseCookies(res.headers["set-cookie"]);
+  let body = res.body;
+  try { body = JSON.parse(body); } catch (_) {}
+
   return {
     status: res.status,
     cookies: { ...cookies, ...newCookies },
-    body: res.body,
+    body,
   };
 }
 
 // ── STEP 3: POST approve OAuth ───────────────────────────
-async function approveOAuth(authToken, ct0, code, twitterCookies) {
+async function approveOAuth(authToken, ct0, authCode, twitterCookies) {
   const formData = new URLSearchParams({
     approval: "true",
-    code,
+    code: authCode,
     consent_flow: "web_consent",
   }).toString();
 
@@ -205,9 +207,7 @@ async function approveOAuth(authToken, ct0, code, twitterCookies) {
   );
 
   let body = res.body;
-  try {
-    body = JSON.parse(body);
-  } catch (_) {}
+  try { body = JSON.parse(body); } catch (_) {}
   return { status: res.status, body, headers: res.headers };
 }
 
@@ -277,13 +277,6 @@ function extractCodeFromBody(body) {
   return null;
 }
 
-// ── EXTRACT auth_code dari halaman authorize ──────────────
-function extractAuthCode(htmlBody) {
-  // cari auth_code di HTML form
-  const match = htmlBody.match(/name="code"\s+value="([^"]+)"/);
-  return match ? match[1] : null;
-}
-
 // ── MAIN FLOW PER AKUN ───────────────────────────────────
 async function connectAccount(account, index) {
   const { authToken, ct0 } = account;
@@ -304,34 +297,26 @@ async function connectAccount(account, index) {
     const codeChallenge = generateCodeChallenge(codeVerifier);
     const state = generateState();
 
-    // Step 2: Buka Twitter OAuth page
-    console.log(`${label} [2/5] Buka Twitter OAuth authorize page...`);
-    const authPage = await getTwitterAuthorizePage(
-      authToken,
-      ct0,
-      codeChallenge,
-      state
-    );
+    // Step 2: Get auth code dari Twitter API
+    console.log(`${label} [2/5] Get auth code dari Twitter API...`);
+    const authRes = await getAuthCode(authToken, ct0, codeChallenge, state);
 
-    if (authPage.status !== 200) {
-      console.log(
-        `${label} ✗ Gagal buka OAuth page, status: ${authPage.status}`
-      );
+    if (authRes.status !== 200) {
+      console.log(`${label} ✗ Gagal get auth code, status: ${authRes.status}`);
+      console.log(`${label} Body:`, JSON.stringify(authRes.body).slice(0, 300));
+      fs.writeFileSync(`debug_auth_${index}.json`, JSON.stringify(authRes.body, null, 2));
       return false;
     }
 
-    // Extract auth code dari HTML
-    const authCode = extractAuthCode(authPage.body);
+    // auth_code ada di body.auth_code
+    const authCode = authRes.body?.auth_code;
     if (!authCode) {
-      console.log(`${label} ✗ Tidak bisa extract auth code dari halaman`);
-      // Debug: simpan body
-      fs.writeFileSync(`debug_auth_${index}.html`, authPage.body);
-      console.log(`${label} Body disimpan ke debug_auth_${index}.html`);
+      console.log(`${label} ✗ Tidak bisa extract auth_code`);
+      fs.writeFileSync(`debug_auth_${index}.json`, JSON.stringify(authRes.body, null, 2));
+      console.log(`${label} Debug disimpan ke debug_auth_${index}.json`);
       return false;
     }
-    console.log(
-      `${label} ✓ Auth code: ${authCode.slice(0, 20)}...`
-    );
+    console.log(`${label} ✓ Auth code: ${authCode.slice(0, 20)}...`);
 
     // Step 3: Approve OAuth
     console.log(`${label} [3/5] Approve OAuth...`);
@@ -339,7 +324,7 @@ async function connectAccount(account, index) {
       authToken,
       ct0,
       authCode,
-      authPage.cookies
+      authRes.cookies
     );
 
     if (approveRes.status !== 200) {
