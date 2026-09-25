@@ -274,6 +274,21 @@ async function handleCallback(callbackUrl, yneraxCookies, maxRedirects = 5) {
     cookies = { ...cookies, ...newCookies };
     lastStatus = res.status;
 
+    // Extract Supabase auth token dari body (Supabase set token via JS, bukan set-cookie)
+    if (res.body && res.body.includes("access_token")) {
+      const atMatch = res.body.match(/"access_token":"([^"]+)"/);
+      const rtMatch = res.body.match(/"refresh_token":"([^"]+)"/);
+      if (atMatch && rtMatch) {
+        const tokenVal = encodeURIComponent(JSON.stringify({
+          access_token: atMatch[1],
+          refresh_token: rtMatch[1],
+          token_type: "bearer",
+        }));
+        cookies["sb-puvmgctzzvbxmvnoiahm-auth-token"] = tokenVal;
+        console.log(`  [cb step ${i}] ✓ Extracted Supabase auth token dari body`);
+      }
+    }
+
     // Cek error exchange
     if (res.headers["location"] && res.headers["location"].includes("exchange_failed")) {
       return { status: res.status, error: "exchange_failed", cookies };
@@ -372,13 +387,13 @@ async function discoverTaskId(yneraxCookies, label) {
     },
   });
 
-  // Next.js server action IDs biasanya muncul di HTML/JS sebagai hex 40+ char
-  // Pattern: "action":"<hex>" atau Next-Action header di response
-  const matches = res.body.match(/"([0-9a-f]{40,64})"/g);
-  if (matches && matches.length > 0) {
-    const ids = [...new Set(matches.map(m => m.replace(/"/g, "")))];
+  // Next.js server action IDs: bisa hex 40+ char atau UUID format
+  const hexMatches = res.body.match(/"([0-9a-f]{40,64})"/g) || [];
+  const uuidMatches = res.body.match(/"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"/g) || [];
+  const allMatches = [...hexMatches, ...uuidMatches];
+  if (allMatches.length > 0) {
+    const ids = [...new Set(allMatches.map(m => m.replace(/"/g, "")))];
     console.log(`${label} 🔍 Kandidat Task ID dari page: ${ids.slice(0, 3).join(", ")}`);
-    // Return yang pertama sebagai kandidat; user bisa override manual
     return ids[0];
   }
 
