@@ -321,15 +321,15 @@ async function followTwitterUser(authToken, ct0, userId) {
   const myId = meBody?.id_str;
   if (!myId) return { ok: false, body: meBody, error: "Gagal dapat user ID sendiri" };
 
-  // Follow
-  const followBody = JSON.stringify({ target_user_id: userId });
+  // Follow via 1.1 (support session cookie)
+  const followBody = new URLSearchParams({ user_id: userId }).toString();
   const followRes = await request({
     hostname: TWITTER_API,
-    path: `/2/users/${myId}/following`,
+    path: "/1.1/friendships/create.json",
     method: "POST",
     headers: {
       "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
-      "Content-Type": "application/json",
+      "Content-Type": "application/x-www-form-urlencoded",
       "Content-Length": Buffer.byteLength(followBody),
       Authorization: `Bearer AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA`,
       Cookie: `auth_token=${authToken}; ct0=${ct0}`,
@@ -342,7 +342,7 @@ async function followTwitterUser(authToken, ct0, userId) {
 
   let followResBody = followRes.body;
   try { followResBody = JSON.parse(followResBody); } catch (_) {}
-  return { ok: followRes.status === 200 || followRes.status === 201, body: followResBody };
+  return { ok: followRes.status === 200, body: followResBody };
 }
 
 async function doTask(authToken, ct0, yneraxCookies, label) {
