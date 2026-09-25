@@ -198,20 +198,31 @@ async function getOAuthStateFromYnerax(yneraxCookies, codeVerifier, codeChalleng
   const newCookies = parseCookies(res.headers["set-cookie"]);
   const loc = res.headers["location"] || "";
   console.log(`  [supabase] status: ${res.status}, redirect: ${loc.slice(0, 120)}`);
+  console.log(`  [supabase] set-cookie keys: ${Object.keys(newCookies).join(", ") || "tidak ada"}`);
 
   if (loc && loc.includes("state=")) {
     const u = new URL(loc.startsWith("http") ? loc : `https://x.com${loc}`);
     const state = u.searchParams.get("state");
     const twitterCodeChallenge = u.searchParams.get("code_challenge");
-    // Merge: ynerax cookies + supabase set-cookie + pastikan verifier ada
-    const mergedCookies = {
-      ...yneraxCookies,
-      ...newCookies,
-      // Supabase SSR Next.js baca verifier dari cookie ini saat callback
-      "sb-puvmgctzzvbxmvnoiahm-auth-token-flows-code-verifier": `base64-${Buffer.from(codeVerifier).toString("base64")}`,
-    };
+
+    // Supabase set cookie dengan nama dinamis: sb-<ref>-auth-token-flow-<uuid>-code-verifier
+    // Kita harus forward semua cookie ini ke callback
+    // Juga set verifier dengan format base64- sesuai yang Supabase expect
+    const verifierEncoded = `base64-${Buffer.from(codeVerifier).toString("base64")}`;
+    const mergedCookies = { ...yneraxCookies, ...newCookies };
+
+    // Set semua variant nama cookie verifier yang mungkin dipakai Supabase SSR
+    mergedCookies["sb-puvmgctzzvbxmvnoiahm-auth-token-flows-code-verifier"] = verifierEncoded;
+    // Cari kalau ada cookie flow-UUID dari set-cookie Supabase, replace verifiernya
+    for (const key of Object.keys(newCookies)) {
+      if (key.includes("code-verifier")) {
+        console.log(`  [supabase] found verifier cookie: ${key} = ${newCookies[key].slice(0,30)}...`);
+        // Overwrite dengan verifier kita (yang cocok dengan codeChallenge kita)
+        mergedCookies[key] = verifierEncoded;
+      }
+    }
+
     console.log(`  [supabase] ✓ state: ${state?.slice(0,20)}..., twitterCC: ${twitterCodeChallenge?.slice(0,20)}...`);
-    console.log(`  [supabase] set-cookie dari supabase: ${Object.keys(newCookies).join(", ") || "tidak ada"}`);
     return { state, twitterCodeChallenge, cookies: mergedCookies };
   }
 
