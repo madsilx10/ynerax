@@ -298,9 +298,8 @@ function extractCodeFromBody(body) {
 
 // ── STEP 6: Task follow @yneraxone ──────────────────────
 const TASK_ID = "ebd461f1-0cbc-4117-bc72-a19207e29742";
-const YNERAX_TWITTER_ID = "1862516346595561472"; // @yneraxone user ID
 
-async function followTwitterUser(authToken, ct0, userId) {
+async function followTwitterUser(authToken, ct0) {
   // Ambil own user ID via verify_credentials (support session cookie)
   const meRes = await request({
     hostname: TWITTER_API,
@@ -322,7 +321,7 @@ async function followTwitterUser(authToken, ct0, userId) {
   if (!myId) return { ok: false, body: meBody, error: "Gagal dapat user ID sendiri" };
 
   // Follow via 1.1 (support session cookie)
-  const followBody = new URLSearchParams({ user_id: userId }).toString();
+  const followBody = new URLSearchParams({ screen_name: "yneraxone" }).toString();
   const followRes = await request({
     hostname: TWITTER_API,
     path: "/1.1/friendships/create.json",
@@ -348,7 +347,7 @@ async function followTwitterUser(authToken, ct0, userId) {
 async function doTask(authToken, ct0, yneraxCookies, label) {
   // Follow @yneraxone dulu
   console.log(`${label} Follow @yneraxone...`);
-  const followRes = await followTwitterUser(authToken, ct0, YNERAX_TWITTER_ID);
+  const followRes = await followTwitterUser(authToken, ct0);
   if (!followRes.ok) {
     console.log(`${label} ⚠ Follow gagal: ${JSON.stringify(followRes.body ?? followRes.error ?? "unknown").slice(0, 100)}`);
   } else {
