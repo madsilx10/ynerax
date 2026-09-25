@@ -160,15 +160,21 @@ async function getYneraxHome(cookies) {
 }
 
 // ── STEP 1b: Get OAuth state valid dari Supabase (provider=x) ─
-async function getOAuthStateFromYnerax(yneraxCookies, codeChallenge) {
+async function getOAuthStateFromYnerax(yneraxCookies, codeVerifier, codeChallenge) {
   // Hit Supabase authorize dengan provider=x dan code_challenge dari skrip
-  // Supabase akan redirect ke Twitter dengan state yang valid
+  // Kirim code_verifier sebagai cookie agar Supabase SSR bisa verifikasi saat callback
   const params = new URLSearchParams({
     provider: "x",
     redirect_to: "https://www.ynerax.one/auth/callback",
     code_challenge: codeChallenge,
     code_challenge_method: "s256",
   });
+
+  // Supabase SSR (Next.js) simpan code_verifier di cookie ini
+  const supabaseCookies = {
+    ...yneraxCookies,
+    "sb-puvmgctzzvbxmvnoiahm-auth-token-flows-code-verifier": `base64-${Buffer.from(codeVerifier).toString("base64")}`,
+  };
 
   const res = await request({
     hostname: "puvmgctzzvbxmvnoiahm.supabase.co",
@@ -179,7 +185,7 @@ async function getOAuthStateFromYnerax(yneraxCookies, codeChallenge) {
       Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
       "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
       "Accept-Encoding": "gzip, deflate, br",
-      Cookie: cookieStr(yneraxCookies),
+      Cookie: cookieStr(supabaseCookies),
       Referer: "https://www.ynerax.one/",
       "Sec-Fetch-Dest": "document",
       "Sec-Fetch-Mode": "navigate",
@@ -196,10 +202,16 @@ async function getOAuthStateFromYnerax(yneraxCookies, codeChallenge) {
   if (loc && loc.includes("state=")) {
     const u = new URL(loc.startsWith("http") ? loc : `https://x.com${loc}`);
     const state = u.searchParams.get("state");
-    // Ambil code_challenge dari redirect Twitter (ini yang Supabase kirim ke Twitter)
     const twitterCodeChallenge = u.searchParams.get("code_challenge");
-    const mergedCookies = { ...yneraxCookies, ...newCookies };
+    // Merge: ynerax cookies + supabase set-cookie + pastikan verifier ada
+    const mergedCookies = {
+      ...yneraxCookies,
+      ...newCookies,
+      // Supabase SSR Next.js baca verifier dari cookie ini saat callback
+      "sb-puvmgctzzvbxmvnoiahm-auth-token-flows-code-verifier": `base64-${Buffer.from(codeVerifier).toString("base64")}`,
+    };
     console.log(`  [supabase] ✓ state: ${state?.slice(0,20)}..., twitterCC: ${twitterCodeChallenge?.slice(0,20)}...`);
+    console.log(`  [supabase] set-cookie dari supabase: ${Object.keys(newCookies).join(", ") || "tidak ada"}`);
     return { state, twitterCodeChallenge, cookies: mergedCookies };
   }
 
@@ -566,7 +578,7 @@ async function connectAccount(account, index) {
     let codeChallenge = generateCodeChallenge(codeVerifier);
     let state = generateState();
 
-    const supabaseOAuth = await getOAuthStateFromYnerax(yneraxCookies, codeChallenge);
+    const supabaseOAuth = await getOAuthStateFromYnerax(yneraxCookies, codeVerifier, codeChallenge);
     if (supabaseOAuth && supabaseOAuth.state) {
       state = supabaseOAuth.state;
       // Pakai code_challenge dari redirect Supabase→Twitter, bukan dari skrip
@@ -577,10 +589,9 @@ async function connectAccount(account, index) {
       console.log(`${label} ⚠ Gagal get state dari Supabase, pakai random state`);
     }
 
-    // code_verifier kita kirim ke Supabase saat authorize, Supabase simpan di cookie
-    // Set manual kalau belum ada
+    // Pastikan code_verifier ada di cookies (sudah di-set dari getOAuthStateFromYnerax)
     if (!yneraxCookies["sb-puvmgctzzvbxmvnoiahm-auth-token-flows-code-verifier"]) {
-      yneraxCookies["sb-puvmgctzzvbxmvnoiahm-auth-token-flows-code-verifier"] = codeVerifier;
+      yneraxCookies["sb-puvmgctzzvbxmvnoiahm-auth-token-flows-code-verifier"] = `base64-${Buffer.from(codeVerifier).toString("base64")}`;
     }
 
     // Step 2: Get auth code dari Twitter API
