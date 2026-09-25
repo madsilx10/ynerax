@@ -124,10 +124,39 @@ async function getYneraxHome(cookies) {
     },
   });
 
-  const newCookies = parseCookies(res.headers["set-cookie"]);
+  let allCookies = { ...cookies, ...parseCookies(res.headers["set-cookie"]) };
+
+  // Follow 307 redirect ke / biar ref ke-register server-side
+  if ((res.status === 307 || res.status === 302) && res.headers["location"]) {
+    const loc = res.headers["location"];
+    const path = loc.startsWith("http") ? new URL(loc).pathname + new URL(loc).search : loc;
+    const res2 = await request({
+      hostname: YNERAX_BASE,
+      path,
+      method: "GET",
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+        Accept:
+          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Accept-Encoding": "gzip, deflate, br, zstd",
+        Cookie: cookieStr(allCookies),
+        Referer: `https://${YNERAX_BASE}/?ref=${REF_CODE}`,
+      },
+    });
+    allCookies = { ...allCookies, ...parseCookies(res2.headers["set-cookie"]) };
+  }
+
+  const newCookies = allCookies;
   // Hardcode ref_code kalau ga ke-set dari server
-  if (!newCookies.ref_code) newCookies.ref_code = REF_CODE;
-  return { ...cookies, ...newCookies };
+  if (!newCookies.ref_code) {
+    console.log(`  ⚠ ref_code tidak di-set server, hardcode manual`);
+    newCookies.ref_code = REF_CODE;
+  } else {
+    console.log(`  ✓ ref_code dari server: ${newCookies.ref_code}`);
+  }
+  return newCookies;
 }
 
 // ── STEP 2: GET auth_code dari Twitter API ───────────────
@@ -356,7 +385,7 @@ async function doTask(authToken, ct0, yneraxCookies, label) {
     },
   }, body);
 
-  await sleep(3000);
+  await sleep(5000);
 
   // Verify task
   const verifyRes = await request({
