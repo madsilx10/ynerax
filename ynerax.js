@@ -28,6 +28,13 @@ function generateState() {
   return crypto.randomBytes(16).toString("hex");
 }
 
+// @supabase/ssr nyimpen SEMUA value cookie sebagai base64(JSON.stringify(value)),
+// bukan base64(value) langsung — verifier (string) tetep di-JSON.stringify dulu
+// (jadi ada tanda kutip di dalamnya) sebelum di-base64-encode.
+function encodeVerifierCookie(verifier) {
+  return `base64-${Buffer.from(JSON.stringify(verifier)).toString("base64")}`;
+}
+
 function request(options, postData = null) {
   return new Promise((resolve, reject) => {
     const req = https.request(options, (res) => {
@@ -173,7 +180,7 @@ async function getOAuthStateFromYnerax(yneraxCookies, codeVerifier, codeChalleng
   // Supabase SSR (Next.js) simpan code_verifier di cookie ini
   const supabaseCookies = {
     ...yneraxCookies,
-    "sb-puvmgctzzvbxmvnoiahm-auth-token-code-verifier": `base64-${Buffer.from(codeVerifier).toString("base64")}`,
+    "sb-puvmgctzzvbxmvnoiahm-auth-token-code-verifier": encodeVerifierCookie(codeVerifier),
   };
 
   const res = await request({
@@ -208,7 +215,7 @@ async function getOAuthStateFromYnerax(yneraxCookies, codeVerifier, codeChalleng
     // Supabase set cookie dengan nama dinamis: sb-<ref>-auth-token-flow-<uuid>-code-verifier
     // Kita harus forward semua cookie ini ke callback
     // Juga set verifier dengan format base64- sesuai yang Supabase expect
-    const verifierEncoded = `base64-${Buffer.from(codeVerifier).toString("base64")}`;
+    const verifierEncoded = encodeVerifierCookie(codeVerifier);
     const mergedCookies = { ...yneraxCookies, ...newCookies };
 
     // Set semua variant nama cookie verifier yang mungkin dipakai Supabase SSR
@@ -602,7 +609,7 @@ async function connectAccount(account, index) {
 
     // Pastikan code_verifier ada di cookies (sudah di-set dari getOAuthStateFromYnerax)
     if (!yneraxCookies["sb-puvmgctzzvbxmvnoiahm-auth-token-code-verifier"]) {
-      yneraxCookies["sb-puvmgctzzvbxmvnoiahm-auth-token-code-verifier"] = `base64-${Buffer.from(codeVerifier).toString("base64")}`;
+      yneraxCookies["sb-puvmgctzzvbxmvnoiahm-auth-token-code-verifier"] = encodeVerifierCookie(codeVerifier);
     }
 
     // Step 2: Get auth code dari Twitter API
@@ -654,7 +661,7 @@ async function connectAccount(account, index) {
     // Step 4: Hit callback ynerax
     console.log(`${label} [4/5] Handle callback ynerax...`);
     // Supabase SSR butuh code_verifier dari cookie untuk exchange token server-side
-    yneraxCookies["sb-puvmgctzzvbxmvnoiahm-auth-token-code-verifier"] = `base64-${Buffer.from(codeVerifier).toString("base64")}`;
+    yneraxCookies["sb-puvmgctzzvbxmvnoiahm-auth-token-code-verifier"] = encodeVerifierCookie(codeVerifier);
     const cbRes = await handleCallback(extracted.callbackUrl, yneraxCookies);
 
     if (cbRes.error === "exchange_failed") {
