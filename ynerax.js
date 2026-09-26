@@ -413,6 +413,16 @@ async function getWelcome(yneraxCookies) {
     },
   });
 
+  // DEBUG: simpen HTML welcome page sekali doang, buat inspeksi manual
+  try {
+    if (!fs.existsSync("welcome.html")) {
+      fs.writeFileSync("welcome.html", res.body || "");
+      console.log("  🔍 [DEBUG] welcome.html tersimpan");
+    }
+  } catch (e) {
+    console.log("  ⚠ [DEBUG] gagal simpen welcome.html:", e.message);
+  }
+
   return { status: res.status, body: res.body };
 }
 
