@@ -397,7 +397,7 @@ async function handleCallback(callbackUrl, yneraxCookies, maxRedirects = 5) {
 
 // ── STEP 5: GET welcome ──────────────────────────────────
 async function getWelcome(yneraxCookies) {
-  const res = await request({
+  let res = await request({
     hostname: YNERAX_BASE,
     path: "/?welcome=1",
     method: "GET",
@@ -413,7 +413,30 @@ async function getWelcome(yneraxCookies) {
     },
   });
 
-  // DEBUG: simpen HTML welcome page sekali doang, buat inspeksi manual
+  // Ikutin redirect (307/302) biar sampe ke halaman final, bukan berenti di halaman redirect kosong
+  let hops = 0;
+  while ((res.status === 307 || res.status === 302) && res.headers["location"] && hops < 5) {
+    const loc = res.headers["location"];
+    const nextPath = loc.startsWith("http") ? new URL(loc).pathname + new URL(loc).search : loc;
+    res = await request({
+      hostname: YNERAX_BASE,
+      path: nextPath,
+      method: "GET",
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+        Accept:
+          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        "Accept-Language": "id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7",
+        Cookie: cookieStr(yneraxCookies),
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+      },
+    });
+    hops++;
+  }
+
+  // DEBUG: simpen HTML halaman final sekali doang, buat inspeksi manual
   try {
     if (!fs.existsSync("welcome.html")) {
       fs.writeFileSync("welcome.html", res.body || "");
